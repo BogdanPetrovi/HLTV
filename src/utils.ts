@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 export const fetchPage = async (
   url: string,
   loadPage: (url: string) => Promise<string>
-): Promise<cheerio.Root> => {
+): Promise<cheerio.CheerioAPI> => {
   const root = cheerio.load(await loadPage(url))
 
   const html = root.html()
@@ -15,9 +15,7 @@ export const fetchPage = async (
     html.includes('Checking your browser before accessing') ||
     html.includes('Enable JavaScript and cookies to continue')
   ) {
-    throw new Error(
-      'Access denied | www.hltv.org used Cloudflare to restrict access'
-    )
+    throw new Error(`Failed to load page: ${url} is protected by Cloudflare`)
   }
 
   return root
@@ -26,9 +24,6 @@ export const fetchPage = async (
 export const generateRandomSuffix = () => {
   return randomUUID()
 }
-
-export const percentageToDecimalOdd = (odd: number): number =>
-  parseFloat(((1 / odd) * 100).toFixed(2))
 
 export function getIdAt(index: number, href: string): number | undefined
 export function getIdAt(index: number): (href: string) => number | undefined
@@ -40,8 +35,6 @@ export function getIdAt(index?: number, href?: string): any {
       return parseNumber(href!.split('/')[index!])
   }
 }
-
-export const notNull = <T>(x: T | null): x is T => x !== null
 
 export const parseNumber = (str: string | undefined): number | undefined => {
   if (!str) {

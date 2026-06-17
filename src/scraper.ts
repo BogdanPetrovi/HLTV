@@ -1,7 +1,8 @@
 import * as cheerio from 'cheerio'
+import { AnyNode } from 'domhandler'
 import { parseNumber } from './utils'
 
-export interface HLTVPage extends cheerio.Root {
+export interface HLTVPage extends cheerio.CheerioAPI {
   (selector: string): HLTVPageElement
 }
 
@@ -37,7 +38,7 @@ export interface HLTVPageElement {
   ): HLTVPageElement
 }
 
-const attachMethods = (root: cheerio.Cheerio): HLTVPageElement => {
+const attachMethods = (root: cheerio.Cheerio<AnyNode>): HLTVPageElement => {
   return {
     length: root.length,
 
@@ -150,7 +151,7 @@ const attachMethods = (root: cheerio.Cheerio): HLTVPageElement => {
   }
 }
 
-export const HLTVScraper = (root: cheerio.Root): HLTVPage => {
+export const HLTVScraper = (root: cheerio.CheerioAPI): HLTVPage => {
   const selector = (selector: string): HLTVPageElement => {
     return attachMethods(root(selector))
   }

@@ -39,7 +39,11 @@
   "bugs": {
     "url": "https://github.com/bogdanpetrovi/HLTV/issues"
   },
-  "files": ["lib"],
+  "files": [
+    "lib",
+    "!lib/playground.js",
+    "!lib/playground.d.ts"
+  ],
   "homepage": "https://github.com/bogdanpetrovi/HLTV#readme",
   "devDependencies": {
     "@types/jest": "29.5.14",

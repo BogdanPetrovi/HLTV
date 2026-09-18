@@ -34,6 +34,14 @@ const hltv = new Hltv()
 export default hltv
 export { hltv as HLTV }
 
+// config
+export { createLoadPage, CloudflareBlockedError } from './config'
+export type {
+  HLTVConfig,
+  LoadPageOptions,
+  CloudflareBlockDetails
+} from './config'
+
 // getEvent
 export type { FullEvent } from './endpoints/getEvent'
 

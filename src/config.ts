@@ -71,9 +71,11 @@ export class CloudflareBlockedError extends Error {
 
 const NAVIGATION_TIMEOUT = 60000
 const CHALLENGE_TITLE = 'Just a moment...'
+const CHALLENGE_TEXT = 'Enable JavaScript and cookies to continue'
+const CHALLENGE_OPTIONS = '_cf_chl_opt'
 const BLOCK_MARKERS = [
   CHALLENGE_TITLE,
-  'Enable JavaScript and cookies to continue',
+  CHALLENGE_TEXT,
   'Sorry, you have been blocked',
   'Access denied',
   'You are being rate limited'
@@ -131,8 +133,6 @@ const launchArgs = (headless: boolean): string[] => [
   '--disable-setuid-sandbox',
   '--disable-blink-features=AutomationControlled',
   '--window-size=1920,1080',
-  // Headless Chrome reports an 800x600 screen by default, which does not
-  // match the window size above.
   ...(headless ? ['--screen-info={1920x1080}'] : [])
 ]
 
@@ -150,8 +150,6 @@ const launchBrowser = async (options: ResolvedOptions): Promise<Browser> => {
         channel,
         headless: options.headless,
         args: launchArgs(options.headless),
-        // Removes the "controlled by automated test software" mode, which
-        // is what sets navigator.webdriver.
         ignoreDefaultArgs: ['--enable-automation'],
         proxy: parseProxy(options.proxy)
       })
@@ -169,9 +167,6 @@ const launchBrowser = async (options: ResolvedOptions): Promise<Browser> => {
   throw lastError
 }
 
-// Headless Chrome advertises itself as "HeadlessChrome". Use the browser's own
-// user agent with that removed so version, platform and client hints all stay
-// consistent with the real binary.
 const detectUserAgent = async (browser: Browser): Promise<string> => {
   const context = await browser.newContext()
 
@@ -195,7 +190,6 @@ const createSession = async (options: ResolvedOptions): Promise<Session> => {
       userAgent,
       locale: options.locale,
       timezoneId: options.timezoneId,
-      // Use the window size instead of Playwright's telltale 1280x720 default.
       viewport: null,
       storageState:
         options.stateFile && fs.existsSync(options.stateFile)
@@ -210,31 +204,27 @@ const createSession = async (options: ResolvedOptions): Promise<Session> => {
   }
 }
 
-// page.title() throws while the page is navigating (e.g. right after a
-// challenge has been passed), which we treat as "unknown".
-const readTitle = async (page: Page): Promise<string | null> => {
+const detectChallenge = async (page: Page): Promise<boolean | null> => {
   try {
-    return await page.title()
+    const content = await page.content()
+
+    return (
+      content.includes(CHALLENGE_OPTIONS) ||
+      content.includes(CHALLENGE_TITLE) ||
+      content.includes(CHALLENGE_TEXT)
+    )
   } catch (e) {
     return null
   }
 }
 
-const isChallenge = (title: string | null): boolean =>
-  title !== null && title.includes(CHALLENGE_TITLE)
-
-// Cloudflare's JS challenge resolves on its own in a real browser and then
-// navigates to the actual page, so give it time instead of judging the first
-// snapshot.
 const waitForChallenge = async (page: Page, timeout: number) => {
   const deadline = Date.now() + timeout
 
   while (Date.now() < deadline) {
     await page.waitForTimeout(1000)
 
-    const title = await readTitle(page)
-
-    if (title !== null && !isChallenge(title)) {
+    if ((await detectChallenge(page)) === false) {
       return
     }
   }
@@ -316,14 +306,9 @@ export const createLoadPage = (loadPageOptions: LoadPageOptions = {}) => {
 
       if (
         headers['cf-mitigated'] === 'challenge' ||
-        status === 403 ||
-        status === 503 ||
-        isChallenge(await readTitle(page))
+        (await detectChallenge(page)) !== false
       ) {
         await waitForChallenge(page, options.challengeTimeout)
-        // A passed challenge navigates to the real page; let that document
-        // finish parsing before reading it. Resolves at once if the challenge
-        // page is still there.
         await page.waitForLoadState('domcontentloaded', {
           timeout: NAVIGATION_TIMEOUT
         })
@@ -350,8 +335,6 @@ export const createLoadPage = (loadPageOptions: LoadPageOptions = {}) => {
     }
   }
 
-  // No retries: a block is reported to the caller right away, since retrying
-  // from the same IP rarely helps and only makes the IP look more suspicious.
   return async (url: string): Promise<string> => {
     try {
       return await loadOnce(url)
@@ -364,8 +347,6 @@ export const createLoadPage = (loadPageOptions: LoadPageOptions = {}) => {
       )
 
       if (blocked || err.message?.includes('Timeout')) {
-        // The saved cookies evidently no longer grant access; make the next
-        // request start with a fresh browser and a clean cookie jar.
         clearState()
         await resetSession()
       }

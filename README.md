@@ -56,7 +56,9 @@ const myHLTV = HLTV.createInstance({
 })
 ```
 
-By default, the library uses **Playwright** with the system Google Chrome (falling back to Playwright's bundled Chromium) to load pages. Cookies — including Cloudflare's `cf_clearance` — are persisted to disk and reused across requests and restarts, a Cloudflare challenge is given up to 30s to resolve on its own, and every request is retried up to 3 times with backoff.
+By default, the library uses **Playwright** with the system Google Chrome (falling back to Playwright's bundled Chromium) to load pages. Cookies — including Cloudflare's `cf_clearance` — are persisted to disk and reused across requests and restarts, and a Cloudflare challenge is given up to 30s (`challengeTimeout`) to resolve on its own.
+
+Requests are **not retried**: if a page is still blocked after that, the error is thrown to the caller immediately. Retrying from the same IP rarely helps and only adds to the IP's bad reputation, so retry policy (if any) is left to your application.
 
 The browser can be tuned through `createLoadPage` or through environment variables (useful when the app itself can't be changed):
 
@@ -86,7 +88,21 @@ const myHLTV = HLTV.createInstance({
 | `stateFile`        | `HLTV_STATE_FILE`      | `<tmpdir>/hltv-scraper/storage-state.json`   |
 | `challengeTimeout` | –                      | `30000`                                      |
 
-When a request is blocked the library throws a `CloudflareBlockedError` (message `CF_BLOCKED`) whose `details` carry the HTTP status, the `cf-mitigated` / `cf-ray` headers and the text that was matched, so you can tell a challenge (`cf-mitigated=challenge`) from a hard WAF block.
+When a request is blocked the library throws a `CloudflareBlockedError` (message `CF_BLOCKED`) whose `details` carry the HTTP status, the `cf-mitigated` / `cf-ray` headers and the text that was matched, so you can tell a challenge (`cf-mitigated=challenge`) from a hard WAF block. After a block (or a navigation timeout) the saved cookies are discarded and the browser is relaunched, so the next call starts with a clean session.
+
+```javascript
+import HLTV, { CloudflareBlockedError } from '@bogdanpet/hltv'
+
+try {
+  const event = await HLTV.getEvent({ id: 7033 })
+} catch (err) {
+  if (err instanceof CloudflareBlockedError) {
+    console.error('Blocked by Cloudflare', err.details)
+  } else {
+    throw err
+  }
+}
+```
 
 ## API
 

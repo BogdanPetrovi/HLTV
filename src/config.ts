@@ -8,7 +8,6 @@ import {
   LaunchOptions,
   Page
 } from 'playwright'
-import { sleep } from './utils'
 
 export interface HLTVConfig {
   loadPage: (url: string) => Promise<string>
@@ -70,9 +69,7 @@ export class CloudflareBlockedError extends Error {
   }
 }
 
-const MAX_RETRIES = 3
 const NAVIGATION_TIMEOUT = 60000
-const SETTLE_TIME = 5000
 const CHALLENGE_TITLE = 'Just a moment...'
 const BLOCK_MARKERS = [
   CHALLENGE_TITLE,
@@ -324,9 +321,13 @@ export const createLoadPage = (loadPageOptions: LoadPageOptions = {}) => {
         isChallenge(await readTitle(page))
       ) {
         await waitForChallenge(page, options.challengeTimeout)
+        // A passed challenge navigates to the real page; let that document
+        // finish parsing before reading it. Resolves at once if the challenge
+        // page is still there.
+        await page.waitForLoadState('domcontentloaded', {
+          timeout: NAVIGATION_TIMEOUT
+        })
       }
-
-      await page.waitForTimeout(SETTLE_TIME)
 
       const content = await page.content()
       const marker = BLOCK_MARKERS.find((m) => content.includes(m))
@@ -349,34 +350,28 @@ export const createLoadPage = (loadPageOptions: LoadPageOptions = {}) => {
     }
   }
 
+  // No retries: a block is reported to the caller right away, since retrying
+  // from the same IP rarely helps and only makes the IP look more suspicious.
   return async (url: string): Promise<string> => {
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        return await loadOnce(url)
-      } catch (err: any) {
-        const blocked = err instanceof CloudflareBlockedError
+    try {
+      return await loadOnce(url)
+    } catch (err: any) {
+      const blocked = err instanceof CloudflareBlockedError
 
-        console.log(
-          `[Try number ${attempt}] Error while scraping:`,
-          blocked
-            ? `${err.message} (${describeBlock(err.details)})`
-            : err.message
-        )
+      console.log(
+        'Error while scraping:',
+        blocked ? `${err.message} (${describeBlock(err.details)})` : err.message
+      )
 
-        if (attempt === MAX_RETRIES) throw err
-
-        if (blocked || err.message.includes('Timeout')) {
-          // The saved cookies evidently no longer grant access; start the
-          // next attempt with a fresh browser and a clean cookie jar.
-          clearState()
-          await resetSession()
-        }
-
-        await sleep(attempt * 4000)
+      if (blocked || err.message?.includes('Timeout')) {
+        // The saved cookies evidently no longer grant access; make the next
+        // request start with a fresh browser and a clean cookie jar.
+        clearState()
+        await resetSession()
       }
-    }
 
-    throw new Error('Failed after max retries')
+      throw err
+    }
   }
 }
 
